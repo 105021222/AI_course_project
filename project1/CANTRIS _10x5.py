@@ -4,6 +4,57 @@ import random
 import copy
 
 row,col = 10,5 #board size
+class Node():
+    def __init__(self):
+        self.UCB1=float('inf')
+        self.children=[] #record next possible move
+        self.pos=-1,-1 #root pos does not matter,so set -1,-1
+        self.t=0 #total values
+        self.n=0 #total visits
+        self.parent=None
+
+    def isleaf(self):
+        return self.children==[]
+
+    def argmax_UCB1(self): #pick child which has max. UCB1
+        max=float('-inf')
+        choose=[]
+        for i in self.children:
+            if i.UCB1>max:
+                max=i.UCB1
+                choose=[]
+                choose.append(i)
+            elif i.UCB1==max:
+                choose.append(i)
+        if len(choose)==1:
+            return choose[0]
+        else:
+            #if have multiple choice,then pick one at random
+            x=random.randrange(0,len(choose))
+            return choose[x]
+    
+    def random_child(self): #pick child at random,and if it has no child,return itself
+        if len(self.children)==1:
+            return self.children[0]
+        r=random.randrange(0,len(self.children))
+        return self.children[r]
+    
+    def update(self,val):
+        cur=self
+        while cur:
+            cur.n+=1
+            cur.t+=val
+            cur=cur.parent
+        cur=self
+        while cur.parent:
+            cur.UCB1=(cur.t/cur.n)+2*np.sqrt(np.log(cur.parent.n)/cur.n)
+            cur=cur.parent
+
+    def add_child(self,i,j):
+        child=Node()
+        child.pos=i,j
+        child.parent=self
+        self.children.append(child)
 
 class AI():
     def __init__(self):
@@ -17,20 +68,17 @@ class AI():
         self.oppopoints = 0
         self.board = np.loadtxt("board2.txt", dtype= int)
         self.children=[] #record next possible move
-        self.UCB1=float('inf') 
         self.pos=-1,-1 #root pos does not matter,so set -1,-1
-        self.t=0 #total values
-        self.n=0 #total visits
-        self.parent=None
+
         # #make board
-        # tmp = (np.arange(row)/2)+1
-        # while(1):
-        #     for i in range(col):
-        #         np.random.shuffle(tmp)
-        #         self.board[:,i] = tmp
-        #     if self.checkstable() == True:
-        #         break
-        # self.show_board()
+        tmp = (np.arange(row)/2)+1
+        while(1):
+            for i in range(col):
+                np.random.shuffle(tmp)
+                self.board[:,i] = tmp
+            if self.checkstable() == True:
+                break
+        #self.show_board()
         
     def checkstable(self):
         for r in range(len(self.board)):
@@ -75,27 +123,6 @@ class AI():
             for j in range(col):
                 if self.board[i][j]!=0: #(i,j) is legal move so make child node and add to self.children
                     child=copy.deepcopy(self)
-                    child.n=0
-                    child.t=0
-                    child.children=[]
-                    child.UCB1=float('inf')
-                    child.parent=self
-                    if ((child.step%4)//2) == child.turn:
-                        pts = child.make_move(i,j)
-                        child.mypoints += pts
-                    else:
-                        pts = child.make_move(i,j)
-                        child.oppopoints += pts
-                    child.step += 1
-                    child.pos=i,j
-                    self.children.append(child)
-    def expand_child2(self): #expand node,add child to tree
-        if self.checkgameover():
-            return
-        for i in range(row):
-            for j in range(col):
-                if self.board[i][j]!=0: #(i,j) is legal move so make child node and add to self.children
-                    child=copy.deepcopy(self)
                     child.children=[]
                     if ((child.step%4)//2) == child.turn:
                         pts = child.make_move(i,j)
@@ -106,33 +133,6 @@ class AI():
                     child.step += 1
                     child.pos=i,j
                     self.children.append(child)
-    def isleaf(self):
-        return self.children==[]
-
-    def argmax_UCB1(self): #pick child which has max. UCB1
-        max=float('-inf')
-        choose=[]
-        for i in self.children:
-            if i.UCB1>max:
-                max=i.UCB1
-                choose=[]
-                choose.append(i)
-            elif i.UCB1==max:
-                choose.append(i)
-        if len(choose)==1:
-            return choose[0]
-        else:
-            #if have multiple choice,then pick one at random
-            x=random.randrange(0,len(choose))
-            return choose[x]
-
-    def random_child(self): #pick child at random,and if it has no child,return itself
-        if len(self.children)==0:
-            return self
-        if len(self.children)==1:
-            return self.children[0]
-        r=random.randrange(0,len(self.children))
-        return self.children[r]
 
     def random_sim(self): #from current state simulate a game to the end,and return the end state's value 
         #the state's value is define as (mypoints-oppopoints)
@@ -161,8 +161,8 @@ class AI():
         s=copy.deepcopy(self)
             
         while True:
-            if s.step-self.step==4:
-                return -(s.mypoints-s.oppopoints)
+            if s.gameover:
+                return s.oppopoints-s.mypoints
             choose=[]
             for i in range(row):
                 for j in range(col):
@@ -178,65 +178,75 @@ class AI():
                 s.oppopoints += pts
             s.step += 1
 
-    def update(self,val): #update n,t,UCB1 value in tree
-        cur=self
-        while cur:
-            cur.n+=1
-            cur.t+=val
-            cur=cur.parent
-        cur=self
-        while cur.parent:
-            cur.UCB1=(cur.t/cur.n)+2*np.sqrt(np.log(cur.parent.n)/cur.n)
-            cur=cur.parent
-
-    def make_decision(self):
-        #######################################################
-        ##### This is the main part you need to implement #####
-        #######################################################        
+    def make_decision(self):# use MCTS to make decision
+        if self.step<5:
+            s0=copy.deepcopy(self)
+            s0.expand_child()
+            max_idx=0
+            max_jdx=0
+            max=float('-inf')
+            if s0.step%2==1:
+                for i in range(len(s0.children)):
+                    if -(s0.children[i].oppopoints-s0.children[i].mypoints)>max:
+                        max=-(s0.children[i].oppopoints-s0.children[i].mypoints)
+                        max_idx=i
+                return s0.children[max_idx].pos
+            for i in s0.children:
+                i.expand_child()
+            for i in range(len(s0.children)):
+                for j in range(len(s0.children[i].children)):        
+                    if -(s0.children[i].children[j].oppopoints-s0.children[i].children[j].mypoints)>max:
+                        max=-(s0.children[i].children[j].oppopoints-s0.children[i].children[j].mypoints)
+                        max_jdx=j
+                        max_idx=i
+            print(max_idx,",",max_jdx,":",-(s0.children[max_idx].children[max_jdx].oppopoints-s0.children[max_idx].children[max_jdx].mypoints))
+            return s0.children[max_idx].pos
         time_start=time.time()
         time_end=time.time()
         #let s0=current state ,and run MCTS process for 25 secs
-        s0=copy.deepcopy(self)
+        root=Node()
         count=0
         while(time_end-time_start<25):
             count+=1
-            cur=s0
+            s0=copy.deepcopy(self)
+            cur=root
             while not cur.isleaf():
                 cur=cur.argmax_UCB1()
-                
+                x,y=cur.pos
+                if ((s0.step%4)//2) == s0.turn:
+                    s0.mypoints+=s0.make_move(x,y)
+                else:
+                    s0.oppopoints+=s0.make_move(x,y)
+                s0.step+=1
             if cur.n!=0:
-                cur.expand_child()
-                cur=cur.random_child()
-                
-            val=cur.random_sim()
+                if not s0.checkgameover():
+                    for i in range(row):
+                        for j in range(col):
+                            if s0.board[i][j]!=0:
+                                cur.add_child(i,j)
+                    cur=cur.random_child()
+                    x,y=cur.pos
+                    if ((s0.step%4)//2) == s0.turn:
+                        s0.mypoints+=s0.make_move(x,y)
+                    else:
+                        s0.oppopoints+=s0.make_move(x,y)
+                    s0.step+=1
+            val=s0.random_sim()
+            #val=s0.random_sim2()
             cur.update(val)
             time_end=time.time()
         print(count)
-        '''for i in s0.children:
-            print(i.UCB1)
-            print(i.checkgameover())
-            print(i.isleaf())'''
-        #if we can pick the move that can end the game and also win the game,pick it
-        if len(s0.children)<=(row*(col-1)+1):
-            '''print('check')'''
-            for i in s0.children:
-                if i.isleaf() and i.checkgameover():
-                    if (i.mypoints-i.oppopoints)>0:
-                        return i.pos
-        #pick the move that has max. UCB1
         max_idx=0
         max=float('-inf')   
-        for i in range(len(s0.children)):
-            if s0.children[i].UCB1>max:
-                max=s0.children[i].UCB1
+        for i in range(len(root.children)):
+            if root.children[i].UCB1>max:
+                max=root.children[i].UCB1
                 max_idx=i
-        return s0.children[max_idx].pos
-        # return format : [x,y]
-        # Use AI to make decision !
-        # random is only for testing !
-    def make_decision3(self):
+        return root.children[max_idx].pos
+
+    def make_decision2(self):
         s0=copy.deepcopy(self)
-        s0.expand_child2()
+        s0.expand_child()
         max_idx=0
         max_jdx=0
         max=float('-inf')
@@ -246,12 +256,10 @@ class AI():
                     max=(s0.children[i].oppopoints-s0.children[i].mypoints)
                     max_idx=i
             return s0.children[max_idx].pos
-        
         for i in s0.children:
-            i.expand_child2()
+            i.expand_child()
         for i in range(len(s0.children)):
             for j in range(len(s0.children[i].children)):
-                    
                     if (s0.children[i].children[j].oppopoints-s0.children[i].children[j].mypoints)>max:
                         max=(s0.children[i].children[j].oppopoints-s0.children[i].children[j].mypoints)
                         max_jdx=j
@@ -259,77 +267,6 @@ class AI():
         print(max_idx,",",max_jdx,":",s0.children[max_idx].children[max_jdx].oppopoints-s0.children[max_idx].children[max_jdx].mypoints)
         return s0.children[max_idx].pos
         
-        
-        print("use")   
-        for i in range(len(s0.children)):
-            for j in range(len(s0.children[i].children)):
-                print(i,",",j,":",s0.children[i].children[j].UCB1)
-                if s0.children[i].children[j].UCB1>max and s0.children[i].children[j].UCB1!=float('inf'):
-                    max=s0.children[i].children[j].UCB1
-                    max_jdx=j
-                    max_idx=i
-
-
-
-    def make_decision2(self):
-        #######################################################
-        ##### This is the main part you need to implement #####
-        #######################################################        
-        time_start=time.time()
-        time_end=time.time()
-        #let s0=current state ,and run MCTS process for 25 secs
-        s0=copy.deepcopy(self)
-        count=0
-        while(time_end-time_start<25):
-            count+=1
-            cur=s0
-            while not cur.isleaf():
-                cur=cur.argmax_UCB1()
-                
-            if cur.n!=0:
-                cur.expand_child()
-                cur=cur.random_child()
-                
-            val=cur.random_sim2()
-            cur.update(val)
-            time_end=time.time()
-        print(count)
-        '''for i in s0.children:
-            print(i.UCB1)
-            print(i.checkgameover())
-            print(i.isleaf())'''
-        #if we can pick the move that can end the game and also win the game,pick it
-        if len(s0.children)<=(row*(col-1)+1):
-            '''print('check')'''
-            for i in s0.children:
-                if i.isleaf() and i.checkgameover():
-                    if (i.oppopoints-i.mypoints)>0:
-                        return i.pos
-        #pick the move that has max. UCB1
-        max_idx=0
-        max_jdx=0
-        max=float('-inf')
-        if s0.step%2==0:
-            print("use")   
-            for i in range(len(s0.children)):
-                for j in range(len(s0.children[i].children)):
-                    print(i,",",j,":",s0.children[i].children[j].UCB1)
-                    if s0.children[i].children[j].UCB1>max and s0.children[i].children[j].UCB1!=float('inf'):
-                        max=s0.children[i].children[j].UCB1
-                        max_jdx=j
-                        max_idx=i
-            print(max_idx,max_jdx)
-            print(s0.children[max_idx].children[max_jdx].UCB1)
-            print(s0.children[max_idx].children[max_jdx].pos)
-            return s0.children[max_idx].pos
-        for i in range(len(s0.children)):
-            if s0.children[i].UCB1>max:
-                max=s0.children[i].UCB1
-                max_idx=i
-        return s0.children[max_idx].pos
-        # return format : [x,y]
-        # Use AI to make decision !
-        # random is only for testing !
 
     def rand_select(self):
         p = 0
@@ -354,8 +291,8 @@ class AI():
         print("Game start!")      
         print('――――――――――――――――――')
         self.show_board()
-        self.turn = int(input("Set the player's order(0:first, 1:second): "))
-
+        #self.turn = int(input("Set the player's order(0:first, 1:second): "))
+        self.turn=1
 
         #start playing    
         while not self.gameover:
@@ -376,7 +313,7 @@ class AI():
                 print('It\'s opponent\'s turn')
                 #x,y = self.rand_select() # can use this while testing ,close it when you submit
                 #[x,y] = [int(x) for x in input("Enter the move : ").split()] #open it when you submit
-                x,y = self.make_decision3()
+                x,y = self.make_decision2()
                 assert (0<=x and x<=row-1 and 0<=y and y<=col-1)
                 assert (self.board[x][y]>0)
                 print(f"Your opponent move is {x},{y}.")
@@ -406,6 +343,18 @@ class AI():
         print('――――――――――――――――――')
 
 if __name__ == '__main__':
- 
+    '''
     game = AI()
     game.start()
+    '''
+    win=0
+    lose=0
+    for i in range(10):
+        game = AI()
+        x=game.start()
+        if x==1:
+            win+=1
+        elif x==-1:
+            lose+=1
+    print("win:",win)
+    print("lose:",lose)
