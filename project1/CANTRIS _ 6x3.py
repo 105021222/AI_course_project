@@ -2,10 +2,13 @@ import numpy as np
 import random
 import copy
 import time
+
 row,col = 6,3 #board size
 
+#For MCTS decision
 class Node():
     def __init__(self):
+
         self.UCB1=float('inf')
         self.children=[] #record next possible move
         self.pos=-1,-1 #root pos does not matter,so set -1,-1
@@ -26,16 +29,12 @@ class Node():
                 choose.append(i)
             elif i.UCB1==max:
                 choose.append(i)
-        if len(choose)==1:
-            return choose[0]
-        else:
-            #if have multiple choice,then pick one at random
-            x=random.randrange(0,len(choose))
-            return choose[x]
+        
+        #pick one at random
+        x=random.randrange(0,len(choose))
+        return choose[x]
     
-    def random_child(self): #pick child at random,and if it has no child,return itself
-        if len(self.children)==1:
-            return self.children[0]
+    def random_child(self): #pick child at random
         r=random.randrange(0,len(self.children))
         return self.children[r]
     
@@ -68,6 +67,9 @@ class AI():
         self.mypoints = 0
         self.oppopoints = 0
         self.board = np.loadtxt("board.txt", dtype= int)
+        self.children=[] #record next possible move
+        self.val=None #root pos does not matter,so set -1,-1
+        self.pos=-1,-1 #record value after alpha-beta pruning
         
         #make board
         tmp = (np.arange(row)/2)+1
@@ -115,89 +117,6 @@ class AI():
         self.checkgameover()        
         return points
 
-    def random_sim(self): #from current state simulate a game to the end,and return the end state's value 
-        #the state's value is defined as (mypoints-oppopoints)
-        s=copy.deepcopy(self)
-        while True:
-            if s.gameover:
-                return s.mypoints-s.oppopoints
-            choose=[]
-            for i in range(row):
-                for j in range(col):
-                    if s.board[i][j]!=0:
-                        choose.append([i,j])
-            r=random.randrange(0,len(choose))
-            x,y=choose[r]
-            if (s.step%2) == s.turn:
-                pts = s.make_move(x,y)
-                s.mypoints += pts
-            else:
-                pts = s.make_move(x,y)
-                s.oppopoints += pts
-            s.step += 1
-    
-    def make_decision_2(self):
-        s0=copy.deepcopy(self)
-        s0.expand_child()
-        max_idx=0
-        max_jdx=0
-        max=float('-inf')
-        
-        for i in range(len(s0.children)):
-            if (s0.children[i].oppopoints-s0.children[i].mypoints)>max:
-                max=(s0.children[i].oppopoints-s0.children[i].mypoints)
-                max_idx=i
-        return s0.children[max_idx].pos
-
-    def make_decision(self):# use MCTS to make decision
-        time_start=time.time()
-        time_end=time.time()
-        for i in range(col):
-            s0=copy.deepcopy(self)
-            pts = s0.make_move(row-1,i)
-            s0.mypoints += pts
-            if s0.gameover and (s0.mypoints-s0.oppopoints>0):
-                return row-1,i
-        #let s0=current state ,and run MCTS process for 25 secs
-        root=Node()
-        count=0
-        while(time_end-time_start<10):
-            count+=1
-            s0=copy.deepcopy(self)
-            cur=root
-            while not cur.isleaf():
-                cur=cur.argmax_UCB1()
-                x,y=cur.pos
-                if (s0.step%2) == s0.turn:
-                    s0.mypoints+=s0.make_move(x,y)
-                else:
-                    s0.oppopoints+=s0.make_move(x,y)
-                s0.step+=1
-            if cur.n!=0:
-                if not s0.checkgameover():
-                    for i in range(row):
-                        for j in range(col):
-                            if s0.board[i][j]!=0:
-                                cur.add_child(i,j)
-                    cur=cur.random_child()
-                    x,y=cur.pos
-                    if (s0.step%2) == s0.turn:
-                        s0.mypoints+=s0.make_move(x,y)
-                    else:
-                        s0.oppopoints+=s0.make_move(x,y)
-                    s0.step+=1
-            val=s0.random_sim()
-            cur.update(val)
-            time_end=time.time()
-        #print(count)
-        max_idx=0
-        max=float('-inf')   
-        for i in range(len(root.children)):
-            if root.children[i].UCB1>max:
-                max=root.children[i].UCB1
-                max_idx=i
-        return root.children[max_idx].pos
-
     def rand_select(self):
         p = 0
         while not(p):
@@ -216,8 +135,167 @@ class AI():
         
         pts += self.clean()
         return pts
+
+    def show_board(self):
+        print('my points:', self.mypoints)
+        print('opponent\'s points:', self.oppopoints)
+        print('The board is :')
+        print(self.board)
+        print('――――――――――――――――――')
+
+    #MCTS decision
+    def random_sim(self,side): #simulate a game to the end,and return the end state's value 
+        s=copy.deepcopy(self)
+        while True:
+            if s.gameover:
+                return (s.mypoints-s.oppopoints)*((-1)**side)
+            choose=[]
+            for i in range(row):
+                for j in range(col):
+                    if s.board[i][j]!=0:
+                        choose.append([i,j])
+            r=random.randrange(0,len(choose))
+            x,y=choose[r]
+            if (s.step%2) == s.turn:
+                pts = s.make_move(x,y)
+                s.mypoints += pts
+            else:
+                pts = s.make_move(x,y)
+                s.oppopoints += pts
+            s.step += 1
     
+    def make_decision_MCTS(self):
+        time_start=time.time()
+        time_end=time.time()
+        #select the move that can win the game
+        for i in range(col):
+            s=copy.deepcopy(self)
+            pts = s.make_move(row-1,i)
+            s.mypoints += pts
+            if s.gameover and (s.mypoints-s.oppopoints>0):
+                return row-1,i
+        #let s0=current state ,and run MCTS process
+        root=Node()
+        count=0 #count simulation times
+        time_limit=5
+        while(time_end-time_start<time_limit):
+            count+=1
+            s=copy.deepcopy(self)
+            cur=root
+            #MCTS process
+            while not cur.isleaf():
+                cur=cur.argmax_UCB1()
+                x,y=cur.pos
+                if (s.step%2) == s.turn:
+                    s.mypoints+=s.make_move(x,y)
+                else:
+                    s.oppopoints+=s.make_move(x,y)
+                s.step+=1
+            if cur.n!=0:
+                if not s.checkgameover():
+                    for i in range(row):
+                        for j in range(col):
+                            if s.board[i][j]!=0:
+                                cur.add_child(i,j)
+                    cur=cur.random_child()
+                    x,y=cur.pos
+                    if (s.step%2) == s.turn:
+                        s.mypoints+=s.make_move(x,y)
+                    else:
+                        s.oppopoints+=s.make_move(x,y)
+                    s.step+=1
+            if (self.step%2) == self.turn:
+                val=s.random_sim(0)
+            else:
+                val=s.random_sim(1)
+            cur.update(val)
+            time_end=time.time()
+
+        #check child's visit times after simulating
+        '''print("total simulations:",count)
+        for i in root.children:
+            print(i.pos,":",i.UCB1,"\t",i.n)'''
+
+        choose=root.children[0]
+        for i in root.children:
+            if i.UCB1>choose.UCB1:
+                choose=i
+        return choose.pos
+
+    #alpha-beta pruning minmax.
+    def expand_child(self): #add possible next move to children
+        if self.checkgameover():
+            return
+        for i in range(row-1,-1,-1):
+            for j in range(col-1,-1,-1):
+                if self.board[i][j]!=0: #check (i,j) is legal move or not
+                    child=copy.deepcopy(self)
+                    child.children=[]
+                    child.val=None
+                    if (child.step%2) == child.turn:
+                        pts = child.make_move(i,j)
+                        child.mypoints += pts
+                    else:
+                        pts = child.make_move(i,j)
+                        child.oppopoints += pts
+                    child.step += 1
+                    child.pos=i,j
+                    self.children.append(child)
+
+    def isleaf(self):
+        return self.children==[]
+
+    def alphabeta(self,depth, a, b, maximizingPlayer):
+        if depth == 0 or self.gameover:
+            return (self.mypoints-self.oppopoints)
+        if self.isleaf():
+            self.expand_child()
+        if maximizingPlayer:
+            for i in self.children:
+                a=max(a,i.alphabeta(depth-1,a,b,False))
+                i.val=a
+                if b<=a:
+                    break #b cut off
+            return a
+        else:
+            for i in self.children:
+                b=min(b,i.alphabeta(depth-1,a,b,True))
+                i.val=b
+                if b<=a:
+                    break #a cut off
+            return b
+
+    def make_decision(self):
+        s=copy.deepcopy(self)
+        #set depth depend on the board
+        count_0=0
+        for i in range(row):
+            for j in range(col):
+                if s.board[i][j]==0:
+                    count_0+=1
+        if count_0<6:
+            depth=5
+        elif count_0<8:
+            depth=6
+        elif count_0<9:
+            depth=7
+        else:
+            depth=9
+
+        #own side
+        if (s.step%2) == s.turn:
+            val=s.alphabeta(depth,float('-inf'),float('inf'),True)
+        #opponent side
+        else:
+            val=s.alphabeta(depth,float('-inf'),float('inf'),False)
         
+        #find the child node
+        for i in s.children:
+            if i.val==val:
+                return i.pos
+         
+
+    #start game    
     def start(self):
         print("Game start!")      
         print('――――――――――――――――――')
@@ -241,8 +319,8 @@ class AI():
 
             else:
                 print('It\'s opponent\'s turn')
-                x,y = self.rand_select() # can use this while testing ,close it when you submit
-                #[x,y] = [int(x) for x in input("Enter the move : ").split()] #open it when you submit
+                #x,y = self.rand_select() # can use this while testing ,close it when you submit
+                [x,y] = [int(x) for x in input("Enter the move : ").split()] #open it when you submit
                 assert (0<=x and x<=row-1 and 0<=y and y<=col-1)
                 assert (self.board[x][y]>0)
                 print(f"Your opponent move is {x},{y}.")
@@ -264,21 +342,19 @@ class AI():
             print('Tie!')
             return 0
 
-    def show_board(self):
-        print('my points:', self.mypoints)
-        print('opponent\'s points:', self.oppopoints)
-        print('The board is :')
-        print(self.board)
-        print('――――――――――――――――――')
+    
 
 if __name__ == '__main__':
+    
     game = AI()
     game.start()
+    
     '''
     win=0
     lose=0
     for i in range(10):
         game = AI()
+        game.turn=i%2
         x=game.start()
         if x==1:
             win+=1
