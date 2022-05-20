@@ -267,20 +267,18 @@ class AI():
 
     def make_decision(self):
         s=copy.deepcopy(self)
-        #set depth depend on the board
-        count_0=0
+        #evaluate depth according to time limit
+        count_not_0=0
         for i in range(row):
             for j in range(col):
-                if s.board[i][j]==0:
-                    count_0+=1
-        if count_0<6:
-            depth=5
-        elif count_0<8:
-            depth=6
-        elif count_0<9:
-            depth=7
-        else:
-            depth=9
+                if s.board[i][j]!=0:
+                    count_not_0+=1
+        p=count_not_0 #tree size in worst case
+        depth=0
+        while(p<850000 and count_not_0>1):
+            depth+=1
+            p*=(count_not_0-1)
+            count_not_0-=1
 
         #own side
         if (s.step%2) == s.turn:
