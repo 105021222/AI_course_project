@@ -255,8 +255,6 @@ class AI():
                 for i in self.children:
                     a=max(a,i.alphabeta(depth-1,a,b,False,True))
                     i.val=a
-                    if b<=a:
-                        break #b cut off
                 return a
         else:
             if first:
@@ -270,8 +268,6 @@ class AI():
                 for i in self.children:
                     b=min(b,i.alphabeta(depth-1,a,b,True,True))
                     i.val=b
-                    if b<=a:
-                        break #a cut off
                 return b
              
     def make_decision(self): 
@@ -282,7 +278,7 @@ class AI():
             for j in range(col):
                 if s.board[i][j]==0:
                     count_0+=1
-        if count_0<17:
+        if count_0<18:
             depth=2-s.step%2
         elif count_0<38:
             depth=4-s.step%2
