@@ -275,7 +275,7 @@ class AI():
                     count_not_0+=1
         p=count_not_0 #tree size in worst case
         depth=0
-        while(p<850000):
+        while(p<850000 and count_not_0>1):
             depth+=1
             p*=(count_not_0-1)
             count_not_0-=1
